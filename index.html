@@ -1,33 +1,211 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
-  <meta charset="utf-8" />
-  <title>欠酒账本</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <style>
-    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif;margin:0;padding:1rem;background:#fafafa}
-    h1{text-align:center}
-    .card{background:#fff;border-radius:8px;padding:.75rem 1rem;margin:.5rem 0;display:flex;justify-content:space-between;align-items:center;box-shadow:0 1px 3px rgba(0,0,0,.1)}
-    .card span{font-size:1.2rem;font-weight:600}
-    button{border:none;border-radius:4px;padding:.4rem .8rem;font-size:1rem;cursor:pointer}
-    .add{background:#07c160;color:#fff}
-    .del{background:#fa5151;color:#fff}
-    .plus{background:#1989fa;color:#fff;margin-left:.3rem}
-    .minus{background:#ff976a;color:#fff}
-    input{padding:.5rem;border:1px solid #ccc;border-radius:4px;font-size:1rem}
-    .row{display:flex;gap:.3rem;margin-bottom:1rem}
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>酒账&游戏海报簿</title>
+<script src="https://cdn.jsdelivr.net/npm/qr-creator/dist/qr-creator.min.js"></script>
+<style>
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto;margin:0;background:#fafafa;color:#333}
+h1{text-align:center;font-size:1.4rem;margin:.5rem 0}
+input,select,button{font-size:1rem;padding:.4rem;margin:.2rem;border:1px solid #bbb;border-radius:4px}
+.add-sec{display:flex;flex-wrap:wrap;gap:.3rem;margin:.8rem}
+.card{background:#fff;border-radius:8px;padding:.6rem;margin:.4rem 0;box-shadow:0 2px 6px rgba(0,0,0,.08)}
+.card-header{display:flex;align-items:center;gap:.5rem}
+.avatar{width:60px;height:60px;border-radius:50%;object-fit:cover;border:2px solid #07c160}
+.count{margin-left:auto;font-weight:700;font-size:1.2rem}
+.level-bar{width:100%;height:10px;background:#e0e0e0;border-radius:5px;margin:.3rem 0;overflow:hidden}
+.level-fill{height:100%;background:linear-gradient(90deg,#07c160,#ffc107,#ff6030)}
+.games{color:#666;font-size:.9rem}
+.note{color:#999;font-size:.85rem;margin-top:.2rem}
+.ctrl{margin-top:.4rem;display:flex;gap:.3rem}
+.ctrl button{padding:.3rem .6rem;border:none;border-radius:4px;color:#fff;cursor:pointer}
+.plus{background:#07c160}
+.minus{background:#fa5151}
+.del{background:#333}
+.poster-box{position:relative;width:300px;margin:1rem auto;background:#fff;border:1px solid #ddd;border-radius:8px;padding:1rem;text-align:center}
+#posterQR{width:80px;height:80px;margin:.5rem auto}
+#posterCanvas{display:none}
+.toolbar{margin:.8rem;display:flex;gap:.5rem;flex-wrap:wrap}
+</style>
 </head>
 <body>
-  <h1>🍻 欠酒账本</h1>
+<h1>🍻 酒账 & 游戏海报簿</h1>
 
-  <div class="row">
-    <input id="nameInput" placeholder="姓名" />
-    <button class="add" onclick="addPerson()">添加</button>
-  </div>
+<!-- 新增人物 -->
+<section class="add-sec">
+  <input id="name" placeholder="姓名">
+  <input id="avatarFile" type="file" accept="image/*" capture="environment">
+  <select id="level">
+    <option value="小趴菜">小趴菜</option>
+    <option value="还行">还行</option>
+    <option value="酒王">酒王</option>
+  </select>
+  <input id="games" placeholder="擅长游戏，逗号分隔">
+  <input id="note" placeholder="备注">
+  <button onclick="addPerson()">添加</button>
+</section>
 
-  <div id="list"></div>
+<!-- 工具栏 -->
+<div class="toolbar">
+  <button onclick="exportJSON()">导出 JSON</button>
+  <button onclick="clearAll()">清空全部</button>
+</div>
 
-  <script src="app.js"></script>
+<!-- 人物列表 -->
+<div id="list"></div>
+
+<!-- 海报预览（生成后显示） -->
+<div id="posterWrap" style="display:none">
+  <div class="poster-box" id="posterBox"></div>
+  <button onclick="savePoster()">保存海报到相册</button>
+  <button onclick="shareTimeline()">分享到朋友圈</button>
+</div>
+
+<script>
+/****************************************************
+ *  工具函数
+ ***************************************************/
+const $ = id => document.getElementById(id);
+function loadData(){
+  return JSON.parse(localStorage.getItem('beerGameFull')||'[]');
+}
+function saveData(arr){
+  localStorage.setItem('beerGameFull',JSON.stringify(arr));
+}
+
+/****************************************************
+ *  头像转 base64
+ ***************************************************/
+let avatarB64 = '';
+$('avatarFile').addEventListener('change',e=>{
+  const file = e.target.files[0];
+  if(!file)return;
+  const reader = new FileReader();
+  reader.onload = ev => avatarB64 = ev.target.result;
+  reader.readAsDataURL(file);
+});
+
+/****************************************************
+ *  增删改
+ ***************************************************/
+function addPerson(){
+  const name = $('name').value.trim();
+  if(!name)return alert('填个名字吧');
+  const data = loadData();
+  if(data.some(p=>p.name===name))return alert('已存在');
+  data.push({
+    name,avatar:avatarB64||'🧑',level:$('level').value,
+    games:$('games').value,note:$('note').value,count:0
+  });
+  saveData(data);['name','games','note'].forEach(id=>$(id).value='');
+  avatarB64='';$('avatarFile').value='';render();
+}
+function delPerson(idx){
+  if(!confirm('确定删除？'))return;
+  const data = loadData();data.splice(idx,1);saveData(data);render();
+}
+function change(idx,delta){
+  const data = loadData();
+  data[idx].count = Math.max(0,data[idx].count+delta);saveData(data);render();
+}
+
+/****************************************************
+ *  渲染列表
+ ***************************************************/
+function render(){
+  const arr = loadData();
+  const listEl = $('list');listEl.innerHTML='';
+  arr.forEach((p,i)=>{
+    const card = document.createElement('div');card.className='card';
+    const levelPercent = {小趴菜:30,还行:60,酒王:100}[p.level]||0;
+    card.innerHTML=`
+      <div class="card-header">
+        ${p.avatar.startsWith('data:')?`<img class="avatar" src="${p.avatar}">`: `<span class="avatar">${p.avatar}</span>`}
+        <div>
+          <div>${p.name}</div>
+          <div class="level-bar"><div class="level-fill" style="width:${levelPercent}%"></div></div>
+        </div>
+        <div class="count">🍻 ${p.count}</div>
+      </div>
+      <div class="games">擅长：${p.games||'无'}</div>
+      <div class="note">备注：${p.note||'无'}</div>
+      <div class="ctrl">
+        <button class="plus" onclick="change(${i},1)">+1</button>
+        <button class="minus" onclick="change(${i},-1)">-1</button>
+        <button class="del" onclick="delPerson(${i})">删除</button>
+        <button onclick="genPoster(${i})">生成海报</button>
+      </div>`;
+    listEl.appendChild(card);
+  });
+}
+
+/****************************************************
+ *  一键海报（含二维码）
+ ***************************************************/
+function genPoster(i){
+  const p = loadData()[i];
+  const url = `${location.origin}${location.pathname}?name=${encodeURIComponent(p.name)}`; // 可扫码回到此人页
+  $('posterBox').innerHTML=`
+    <h2>🍻 酒账海报</h2>
+    ${p.avatar.startsWith('data:')?`<img class="avatar" src="${p.avatar}">`: `<span class="avatar">${p.avatar}</span>`}
+    <div><b>${p.name}</b></div>
+    <div>酒量等级：${p.level}</div>
+    <div>当前欠酒：<b style="color:#07c160">${p.count} 瓶</b></div>
+    <div>擅长游戏：${p.games||'无'}</div>
+    <div id="posterQR"></div>
+    <div style="font-size:12px;color:#999">扫码查看实时账本</div>`;
+  // 生成二维码
+  QRCreator(url,{size:80},q=> $('posterQR').appendChild(q));
+  $('posterWrap').style.display='block';
+  // 把海报画到隐藏 canvas，方便保存
+  const canvas = document.createElement('canvas');canvas.width=300;canvas.height=350;
+  const ctx=canvas.getContext('2d');
+  ctx.fillStyle='#fff';ctx.fillRect(0,0,300,350);
+  ctx.fillStyle='#000';ctx.font='20px sans-serif';ctx.textAlign='center';
+  ctx.fillText('🍻 酒账海报',150,40);
+  const img=new Image();
+  img.onload=()=>{ctx.drawImage(img,100,60,100,100);ctx.font='16px sans-serif';
+  ctx.fillText(p.name,150,190);ctx.fillText(`酒量等级：${p.level}`,150,220);
+  ctx.fillText(`当前欠酒：${p.count} 瓶`,150,250);ctx.fillText(`擅长：${p.games||'无'}`,150,280);
+  ctx.drawImage($('posterQR').querySelector('canvas'),110,290,80,80);
+  document.body.appendChild(canvas);canvas.id='posterCanvas';};
+  img.src=p.avatar.startsWith('data:')?p.avatar:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+}
+function savePoster(){
+  const canvas=$('posterCanvas');
+  if(!canvas)return alert('请先生成海报');
+  canvas.toBlob(blob=>{
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');a.href=url;a.download='beerPoster.png';a.click();
+  });
+}
+function shareTimeline(){
+  // 微信内嵌浏览器可直接调起分享；其余浏览器复制文案
+  const text='快来看看我的酒账海报~ '+location.href;
+  if(typeof WeixinJSBridge!=='undefined'){
+    WeixinJSBridge.invoke('shareTimeline',{title:text,link:location.href});
+  }else{
+    alert('已生成海报，请手动分享到朋友圈\n'+text);
+  }
+}
+
+/****************************************************
+ *  工具栏
+ ***************************************************/
+function exportJSON(){
+  const blob=new Blob([localStorage.getItem('beerGameFull')],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='beerGameFull.json';a.click();
+}
+function clearAll(){
+  if(!confirm('清空所有数据？'))return;
+  localStorage.removeItem('beerGameFull');render();
+}
+
+/****************************************************
+ *  初始化
+ ***************************************************/
+render();
+</script>
 </body>
 </html>
